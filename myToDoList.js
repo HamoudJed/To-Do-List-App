@@ -1,4 +1,5 @@
 const todoText = document.getElementById("todoText");
+const dueDate = document.getElementById("dueDate");
 const addBtn = document.getElementById("addBtn");
 const todoList = document.getElementById("todoList");
 const clearBtn = document.getElementById("clearBtn");
@@ -6,18 +7,52 @@ let tasks = [];
 
 function addTask() {
     const task = todoText.value.trim();
+    const deadline = dueDate.value;
+
     if (task === "") return;
 
     const newTask = {
         id: Date.now(),
         text: task,
+        dueDate: deadline,
         completed: false
     };
 
     tasks.push(newTask);
     saveTasks();
     renderTask(newTask);
+
     todoText.value = "";
+    dueDate.value = "";
+}
+
+function formatDueDate(dateString) {
+    if (!dateString) return "No due date";
+
+    const date = new Date(`${dateString}T00:00:00`);
+    return `Due: ${date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric"
+    })}`;
+}
+
+function isOverdue(dateString, completed) {
+    if (!dateString || completed) return false;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const due = new Date(`${dateString}T00:00:00`);
+    return due < today;
+}
+
+function createTaskDateElement(taskObj) {
+    const taskDate = document.createElement("span");
+    taskDate.className = "task-date";
+    taskDate.textContent = formatDueDate(taskObj.dueDate);
+    taskDate.classList.toggle("overdue", isOverdue(taskObj.dueDate, taskObj.completed));
+    return taskDate;
 }
 
 function renderTask(taskObj) {
@@ -34,9 +69,17 @@ function renderTask(taskObj) {
     checkbox.classList.add("task-check");
     checkbox.checked = taskObj.completed;
 
+    const taskDetails = document.createElement("div");
+    taskDetails.className = "task-details";
+
     const taskText = document.createElement("span");
     taskText.textContent = taskObj.text;
     taskText.classList.add("task-text");
+
+    const taskDate = createTaskDateElement(taskObj);
+
+    taskDetails.appendChild(taskText);
+    taskDetails.appendChild(taskDate);
 
     const editBtn = document.createElement("button");
     editBtn.textContent = "✏️";
@@ -58,77 +101,99 @@ function renderTask(taskObj) {
     checkbox.addEventListener("change", () => {
         taskObj.completed = checkbox.checked;
         li.classList.toggle("completed", taskObj.completed);
+        taskDate.classList.toggle("overdue", isOverdue(taskObj.dueDate, taskObj.completed));
         saveTasks();
     });
 
     editBtn.addEventListener("click", () => {
-        const input = document.createElement("input");
-        input.type = "text";
-        input.value = taskText.textContent;
-        input.className = "edit-input";
+        const textInput = document.createElement("input");
+        textInput.type = "text";
+        textInput.value = taskObj.text;
+        textInput.className = "edit-input";
 
-        li.replaceChild(input, taskText);
-        input.focus();
+        const dateInput = document.createElement("input");
+        dateInput.type = "date";
+        dateInput.value = taskObj.dueDate || "";
+        dateInput.className = "edit-date-input";
+
+        taskDetails.replaceChild(textInput, taskText);
+        taskDetails.replaceChild(dateInput, taskDate);
+        textInput.focus();
 
         function finishEditing() {
-            const newText = input.value.trim();
+            const newText = textInput.value.trim();
             if (newText) {
                 taskObj.text = newText;
-                saveTasks();
             }
+
+            taskObj.dueDate = dateInput.value;
+            saveTasks();
+
             taskText.textContent = taskObj.text;
-            li.replaceChild(taskText, input);
+            taskDate.textContent = formatDueDate(taskObj.dueDate);
+            taskDate.classList.toggle("overdue", isOverdue(taskObj.dueDate, taskObj.completed));
+
+            if (taskDetails.contains(textInput)) {
+                taskDetails.replaceChild(taskText, textInput);
+            }
+            if (taskDetails.contains(dateInput)) {
+                taskDetails.replaceChild(taskDate, dateInput);
+            }
         }
 
-        input.addEventListener("blur", finishEditing);
-        input.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") finishEditing();
+        textInput.addEventListener("blur", finishEditing);
+        textInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") finishEditing();
         });
+
+        dateInput.addEventListener("change", finishEditing);
+        dateInput.addEventListener("blur", finishEditing);
     });
 
     deleteBtn.addEventListener("click", () => {
         li.classList.add("fade-out");
         setTimeout(() => {
-            tasks = tasks.filter(t => t !== taskObj);
+            tasks = tasks.filter(task => task.id !== taskObj.id);
             saveTasks();
             li.remove();
         }, 400);
     });
 
-    li.addEventListener("dragstart", (e) => {
+    li.addEventListener("dragstart", (event) => {
         li.classList.add("dragging");
-        e.dataTransfer.effectAllowed = "move"; 
+        event.dataTransfer.effectAllowed = "move";
 
-        const crt = li.cloneNode(true);
-        crt.style.width = getComputedStyle(li).width;
-        crt.style.opacity = "0.8";
-        crt.style.position = "absolute";
-        crt.style.top = "-9999px";
-        document.body.appendChild(crt);
-        e.dataTransfer.setDragImage(crt, 20, 20);
-        setTimeout(() => document.body.removeChild(crt), 0);
+        const clone = li.cloneNode(true);
+        clone.style.width = getComputedStyle(li).width;
+        clone.style.opacity = "0.8";
+        clone.style.position = "absolute";
+        clone.style.top = "-9999px";
+        document.body.appendChild(clone);
+        event.dataTransfer.setDragImage(clone, 20, 20);
+        setTimeout(() => document.body.removeChild(clone), 0);
     });
 
     li.addEventListener("dragend", () => {
         li.classList.remove("dragging");
-        persistOrderFromDOM(); 
+        persistOrderFromDOM();
     });
 
     li.appendChild(handle);
     li.appendChild(checkbox);
-    li.appendChild(taskText);
+    li.appendChild(taskDetails);
     li.appendChild(actionWrapper);
     li.classList.add("fade-in");
     todoList.appendChild(li);
 }
 
 function clearCompleted() {
-    const allTask = document.querySelectorAll("#todoList li");
-    allTask.forEach((task) => {
-        if (task.classList.contains("completed")) {
-            task.classList.add("fade-out");
+    const allTasks = document.querySelectorAll("#todoList li");
+
+    allTasks.forEach((taskElement) => {
+        if (taskElement.classList.contains("completed")) {
+            taskElement.classList.add("fade-out");
             setTimeout(() => {
-                task.remove();
+                taskElement.remove();
             }, 400);
         }
     });
@@ -142,25 +207,29 @@ function saveTasks() {
 }
 
 function getDragAfterElement(container, y) {
-    const els = [...container.querySelectorAll("li:not(.dragging)")];
-    return els.reduce((closest, child) => {
+    const elements = [...container.querySelectorAll("li:not(.dragging)")];
+
+    return elements.reduce((closest, child) => {
         const box = child.getBoundingClientRect();
         const offset = y - (box.top + box.height / 2);
+
         if (offset < 0 && offset > closest.offset) {
             return { offset, element: child };
-        } else {
-            return closest;
         }
+
+        return closest;
     }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
 }
 
-todoList.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    const afterElement = getDragAfterElement(todoList, e.clientY);
+todoList.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+
+    const afterElement = getDragAfterElement(todoList, event.clientY);
     const dragging = document.querySelector(".dragging");
     if (!dragging) return;
-    [...todoList.children].forEach(li => li.classList.remove("reorder-shadow"));
+
+    [...todoList.children].forEach(item => item.classList.remove("reorder-shadow"));
 
     if (afterElement == null) {
         todoList.appendChild(dragging);
@@ -175,30 +244,32 @@ todoList.addEventListener("drop", () => {
 });
 
 todoList.addEventListener("dragleave", () => {
-    [...todoList.children].forEach(li => li.classList.remove("reorder-shadow"));
+    [...todoList.children].forEach(item => item.classList.remove("reorder-shadow"));
 });
 
 function persistOrderFromDOM() {
-    const order = [...todoList.children].map(li => Number(li.dataset.id));
-    const pos = new Map(order.map((id, i) => [id, i]));
-    tasks.sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
+    const order = [...todoList.children].map(item => Number(item.dataset.id));
+    const positions = new Map(order.map((id, index) => [id, index]));
+    tasks.sort((a, b) => (positions.get(a.id) ?? 0) - (positions.get(b.id) ?? 0));
     saveTasks();
 }
 
-addBtn.addEventListener('click', addTask);
-clearBtn.addEventListener('click', clearCompleted);
+addBtn.addEventListener("click", addTask);
+clearBtn.addEventListener("click", clearCompleted);
 
-todoText.addEventListener('keydown', (event) => {
+todoText.addEventListener("keydown", (event) => {
     if (event.key === "Enter") addTask();
 });
 
 window.addEventListener("DOMContentLoaded", () => {
     const saved = localStorage.getItem("todoTasks");
+
     try {
         const savedTasks = saved ? JSON.parse(saved) : [];
         tasks = Array.isArray(savedTasks) ? savedTasks : [];
     } catch {
         tasks = [];
     }
+
     tasks.forEach(task => renderTask(task));
 });
